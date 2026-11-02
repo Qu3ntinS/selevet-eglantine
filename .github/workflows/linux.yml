@@ -1,0 +1,68 @@
+name: linux
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Clang 23
+        run: |
+          wget -q https://apt.llvm.org/llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 23
+          sudo ln -sfn /usr/bin/clang-23 /usr/local/bin/clang
+          sudo ln -sfn /usr/bin/clang++-23 /usr/local/bin/clang++
+          sudo ln -sfn /usr/bin/lld-23 /usr/local/bin/ld.lld
+          clang --version
+          cmake --version
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            ccache git ninja-build patch pkg-config python3 nasm \
+            glslang-tools \
+            qt6-base-private-dev qt6-charts-dev qt6-tools-dev \
+            libboost-dev libboost-fiber-dev libboost-context-dev \
+            libfmt-dev liblz4-dev libzstd-dev zlib1g-dev libssl-dev \
+            nlohmann-json3-dev libopus-dev libusb-1.0-0-dev libsdl3-dev \
+            libavcodec-dev libavfilter-dev libavutil-dev libswscale-dev \
+            libvulkan-dev vulkan-utility-libraries-dev \
+            spirv-tools spirv-headers \
+            libxbyak-dev libgl1-mesa-dev libglu1-mesa-dev libxext-dev \
+            libpulse-dev libudev-dev libxkbcommon-x11-0
+
+      - name: ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ccache
+          key: ccache-linux-${{ runner.os }}-${{ github.sha }}
+          restore-keys: ccache-linux-${{ runner.os }}-
+
+      - name: Configure
+        run: |
+          cmake -C tuned/pgo-use-linux.cmake -S . -B build \
+            -G Ninja \
+            -DUSE_CCACHE=ON
+
+      - name: Build
+        env:
+          LLVM_PARALLEL_LINK_JOBS: "1"
+        run: cmake --build build --target yuzu --parallel 3
+
+      - name: Upload eglantine
+        uses: actions/upload-artifact@v4
+        with:
+          name: eglantine-linux
+          path: |
+            build/bin/eglantine
+            build/bin/nx2_switches.txt
+          if-no-files-found: error
